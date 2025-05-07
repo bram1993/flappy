@@ -1,4 +1,3 @@
 streamlit==1.45.0
 streamlit-js-eval==0.1.7
-random
-time
+# Add other dependencies here (but don't include random)
