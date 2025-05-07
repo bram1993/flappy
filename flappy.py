@@ -134,4 +134,3 @@ if not st.session_state.running and st.session_state.bird_y != 250:
 if st.session_state.running:
     time.sleep(0.03)
     st.experimental_rerun()
-ß
