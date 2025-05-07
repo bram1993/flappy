@@ -1,111 +1,137 @@
-import pygame
+import streamlit as st
+import time
 import random
+from streamlit_js_eval import streamlit_js_eval
 
-# Setup
-pygame.init()
-screen = pygame.display.set_mode((400, 600))
-clock = pygame.time.Clock()
-font = pygame.font.SysFont(None, 36)
+st.set_page_config(page_title="Flappy Stream", layout="wide")
 
-# Game state
-gravity = 0.5
-bird_movement = 0
-game_active = False
-game_started = False
-score = 0
-high_score = 0
-speed = 4
+# Constants
+GRAVITY = 0.5
+JUMP_STRENGTH = -7
+PIPE_WIDTH = 60
+PIPE_GAP = 150
+PIPE_SPEED = 3
 
-# Bird and pipes
-bird = pygame.Rect(100, 300, 30, 30)
-pipes = []
-pipe_gap = 150
+# Session state setup
+def init_game():
+    st.session_state.bird_y = 250
+    st.session_state.velocity = 0
+    st.session_state.pipes = []
+    st.session_state.score = 0
+    st.session_state.high_score = st.session_state.get("high_score", 0)
+    st.session_state.running = False
+    st.session_state.last_update = time.time()
 
-def create_pipe():
-    height = random.randint(100, 400)
-    top = pygame.Rect(400, 0, 50, height)
-    bottom = pygame.Rect(400, height + pipe_gap, 50, 600 - height - pipe_gap)
-    return top, bottom
+# Initialize game
+if "bird_y" not in st.session_state:
+    init_game()
 
-def reset_game():
-    global bird, bird_movement, pipes, score, game_active, game_started, speed
-    bird.y = 300
-    bird_movement = 0
-    pipes.clear()
-    pipes.extend(create_pipe())
-    score = 0
-    speed = 4
-    game_active = True
-    game_started = True
+# Input (spacebar detection via JS)
+space_pressed = streamlit_js_eval(js_expressions="keyPressed === 32", key="space_event")
+if space_pressed and not st.session_state.running:
+    st.session_state.running = True
+    st.session_state.pipes = []
+    st.session_state.velocity = JUMP_STRENGTH
+    st.session_state.last_update = time.time()
 
-pipes.extend(create_pipe())
+elif space_pressed and st.session_state.running:
+    st.session_state.velocity = JUMP_STRENGTH
 
-# Main loop
-while True:
-    space_pressed = pygame.key.get_pressed()[pygame.K_SPACE]
+# Game loop logic
+if st.session_state.running:
+    now = time.time()
+    dt = now - st.session_state.last_update
+    st.session_state.last_update = now
 
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            pygame.quit()
-            exit()
-    
-    # Start or restart game
+    # Bird physics
+    st.session_state.velocity += GRAVITY
+    st.session_state.bird_y += st.session_state.velocity
+
+    # Generate pipes
+    if len(st.session_state.pipes) == 0 or st.session_state.pipes[-1][0] < 400:
+        new_top = random.randint(100, 300)
+        st.session_state.pipes.append([600, new_top])
+
+    # Move pipes
+    new_pipes = []
+    for x, top in st.session_state.pipes:
+        x -= PIPE_SPEED
+        if x + PIPE_WIDTH > 0:
+            new_pipes.append([x, top])
+    st.session_state.pipes = new_pipes
+
+    # Collision and scoring
+    bird_x = 150
+    bird_radius = 20
+    passed = False
+
+    for pipe_x, pipe_top in st.session_state.pipes:
+        if pipe_x < bird_x < pipe_x + PIPE_WIDTH:
+            if not (pipe_top < st.session_state.bird_y < pipe_top + PIPE_GAP):
+                st.session_state.running = False
+        if pipe_x + PIPE_WIDTH < bird_x and not passed:
+            st.session_state.score += 1
+            passed = True
+
+    # Check bounds
+    if st.session_state.bird_y < 0 or st.session_state.bird_y > 500:
+        st.session_state.running = False
+
+    # Update high score
+    st.session_state.high_score = max(st.session_state.high_score, st.session_state.score)
+
+# Drawing the game
+st.markdown("""
+<style>
+.canvas {{
+    position: relative;
+    width: 600px;
+    height: 500px;
+    background-color: #add8e6;
+    border: 2px solid black;
+}}
+.bird {{
+    position: absolute;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: yellow;
+    left: 150px;
+    top: {bird_y}px;
+    z-index: 10;
+}}
+.pipe {{
+    position: absolute;
+    width: 60px;
+    background: green;
+}}
+</style>
+<div class="canvas">
+<div class="bird" style="top: {bird_y}px"></div>
+{pipes}
+</div>
+""".format(
+    bird_y=st.session_state.bird_y,
+    pipes="\n".join(
+        f'<div class="pipe" style="left: {x}px; top: 0; height: {top}px"></div>' +
+        f'<div class="pipe" style="left: {x}px; top: {top + PIPE_GAP}px; height: {500 - top - PIPE_GAP}px"></div>'
+        for x, top in st.session_state.pipes
+    )
+), unsafe_allow_html=True)
+
+# Display score
+st.title("Flappy Stream 🐦")
+st.subheader(f"Score: {st.session_state.score}")
+st.subheader(f"High Score: {st.session_state.high_score}")
+
+# Game Over handling
+if not st.session_state.running and st.session_state.bird_y != 250:
+    st.info("Game Over. Press spacebar to restart.")
     if space_pressed:
-        if not game_started:
-            reset_game()
-        elif not game_active:
-            if score > high_score:
-                high_score = score
-            reset_game()
+        init_game()
 
-    if game_active:
-        if space_pressed:
-            bird_movement = -6
-        else:
-            bird_movement += gravity
-
-        bird.y += bird_movement
-
-        for pipe in pipes:
-            pipe.x -= speed
-
-        if pipes[-1].x < 200:
-            pipes.extend(create_pipe())
-
-        if pipes[0].x < -50:
-            pipes = pipes[2:]
-            score += 1
-            # Increase speed every few pipes
-            if score % 5 == 0:
-                speed += 0.5
-
-        for pipe in pipes:
-            if bird.colliderect(pipe):
-                game_active = False
-        if bird.top <= 0 or bird.bottom >= 600:
-            game_active = False
-
-    # Drawing
-    screen.fill((135, 206, 250))
-    pygame.draw.rect(screen, (255, 255, 0), bird)
-    for pipe in pipes:
-        pygame.draw.rect(screen, (0, 255, 0), pipe)
-
-    # Scores
-    high_text = font.render(f"High Score: {high_score}", True, (0, 0, 0))
-    screen.blit(high_text, (10, 10))
-    score_text = font.render(f"Score: {score}", True, (0, 0, 0))
-    screen.blit(score_text, (280, 10))
-
-    if not game_started:
-        text = font.render("Press SPACE to start", True, (0, 0, 0))
-        screen.blit(text, (80, 250))
-    elif not game_active:
-        text = font.render(f"Game Over! Score: {score}", True, (255, 0, 0))
-        screen.blit(text, (80, 250))
-        text2 = font.render("Press SPACE to restart", True, (0, 0, 0))
-        screen.blit(text2, (80, 300))
-
-    pygame.display.flip()
-    clock.tick(60)
+# Refresh the app to simulate animation
+if st.session_state.running:
+    time.sleep(0.03)
+    st.experimental_rerun()
 ß
